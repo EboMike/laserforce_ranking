@@ -99,6 +99,11 @@ class PlayerSm5GameStats(PlayerCoreGameStats):
         return self.stats.nuke_cancels
 
     @property
+    def medic_hits_str(self) -> str:
+        return get_medic_hits_string(medic_hits=self.stats.medic_hits, own_medic_hits=self.stats.own_medic_hits,
+                                     medic_nukes=self.stats.medic_nukes)
+
+    @property
     def medic_hits(self) -> int:
         return self.stats.medic_hits
 
@@ -423,7 +428,7 @@ async def get_sm5_player_stats(game: SM5Game, main_player: Optional[EntityStarts
 
         # Fake the player count to 1 if there aren't any so we don't divide by 0. All the numbers will be 0 anyway so
         # it won't make a difference.
-        average_divider = player_count if player_count else 1
+        player_count_adjusted = player_count if player_count else 1
 
         # Create the sum of all players in the game.
         sum_player = Sm5PlayerGameStatsSum(
@@ -433,14 +438,14 @@ async def get_sm5_player_stats(game: SM5Game, main_player: Optional[EntityStarts
             total_score=sum_score,
             total_gross_positive_score=sum_gross_positive_score,
             total_penalties=sum_penalties,
-            average_points_per_minute=int(sum_points_per_minute / average_divider),
+            average_points_per_minute=int(sum_points_per_minute / player_count_adjusted),
             state_distribution=avg_state_distribution,
             score_components=avg_score_components,
-            mvp_points=sum_mvp_points / average_divider,
+            mvp_points=sum_mvp_points / player_count_adjusted,
             shots_fired=sum_shots_fired,
             shots_hit=sum_shots_hit,
-            average_shots_left=int(sum_shots_left / average_divider),
-            average_lives_left=int(sum_lives_left / average_divider),
+            average_shots_left=int(sum_shots_left / player_count_adjusted),
+            average_lives_left=int(sum_lives_left / player_count_adjusted),
             lives_over_time=avg_lives_over_time,
             shot_opponent=sum_shot_opponent,
             times_zapped=sum_times_zapped,
@@ -459,7 +464,7 @@ async def get_sm5_player_stats(game: SM5Game, main_player: Optional[EntityStarts
             total_missile_hits=sum_missile_hits,
             total_times_missiled=sum_times_missiled,
             total_medic_hits=sum_medic_hits,
-            average_time_alive_millis=int(sum_time_alive / average_divider),
+            average_time_alive_millis=int(sum_time_alive / player_count_adjusted),
         )
 
         # Sort the roster by score.
@@ -472,7 +477,8 @@ async def get_sm5_player_stats(game: SM5Game, main_player: Optional[EntityStarts
                 players=players,
                 sum_player=sum_player,
                 lives_over_time=lives_over_time_team_average
-            ))
+            )
+        )
 
     # Sort teams by score.
     teams.sort(key=lambda x: x.score, reverse=True)
@@ -485,7 +491,7 @@ async def get_sm5_player_stats(game: SM5Game, main_player: Optional[EntityStarts
 
 @cache()
 async def get_sm5_lives_over_time(game: SM5Game, team_roster: dict[Team, List[PlayerInfo]], granularity_millis: int) -> \
-        dict[int, list[int]]:
+    dict[int, list[int]]:
     lives_timeline = defaultdict(list)
     current_lives = {}
 
@@ -552,9 +558,23 @@ async def get_sm5_lives_over_time(game: SM5Game, team_roster: dict[Team, List[Pl
     return lives_timeline
 
 
+def get_medic_hits_string(medic_hits: int, own_medic_hits: int, medic_nukes: int) -> str:
+    """Returns the medic hits in the format that is used by LaserForce.
+
+    This is shown as medic_hits_by_tagging_and_missiling/medic_hits_by_nuking/own_medic_hits
+
+    Example: 3/6/-1 (3 hits through tags/missiles, 2 nukes, one tag on the own medic)
+
+    Any component that is 0 will not be shown (except for the first one, which is always shown).
+    """
+    nuke_hits_str = f"/{medic_nukes}" if medic_nukes else ""
+    own_medic_hits_str = f"/-{own_medic_hits}" if own_medic_hits else ""
+    return f"{medic_hits}{nuke_hits_str}{own_medic_hits_str}"
+
+
 async def get_sm5_rating_over_time(entity_id: str, min_time: datetime = _MIN_DATETIME,
                                    max_time: datetime = _MAX_DATETIME) -> \
-        Optional[TimeSeriesRawData]:
+    Optional[TimeSeriesRawData]:
     """Creates a time series of the SM5 rating for a specific player.
 
     entity_id: Entity ID of the player to get the rating for.
@@ -883,6 +903,52 @@ async def get_sm5_notable_events(game: SM5Game) -> list[NotableEvent]:
                             break
 
                     nuke_check_index += 1
+
+        # Any friendly medic hits?
+        if events[event_index].type in [
+            EventType.DOWNED_OPPONENT,
+            EventType.DOWNED_TEAM,
+            EventType.MISSILE_DOWN_OPPONENT,
+            EventType.MISSILE_DOWN_TEAM]:
+            # One player downed another. Was it a medic?
+            tag_time_ms = events[event_index].time
+            target_entity_id = events[event_index].entity2
+
+            if target_entity_id not in entity_id_map:
+                print(f"ERROR - cannot find entity for target {target_entity_id}")
+                event_index += 1
+                continue
+
+            target_entity = entity_id_map[target_entity_id]
+            target_team = team_from_entity_id[target_entity_id]
+
+            # We only care about medics getting hit.
+            if target_entity.role != IntRole.MEDIC:
+                event_index += 1
+                continue
+
+            aggressor_entity_id = events[event_index].entity1
+
+            if aggressor_entity_id not in entity_id_map:
+                print(f"ERROR - cannot find entity for aggressor {aggressor_entity_id}")
+                event_index += 1
+                continue
+
+            aggressor_entity = entity_id_map[aggressor_entity_id]
+            aggressor_team = team_from_entity_id[aggressor_entity_id]
+
+            if target_team == aggressor_team:
+                # Friendly fire!
+                if events[event_index].type in [EventType.MISSILE_DOWN_TEAM,
+                                                EventType.MISSILE_DOWN_OPPONENT]:
+                    add_event(tag_time_ms,
+                              f"{aggressor_entity.name} MISSILES own medic {target_entity.name}",
+                              [aggressor_entity.name, "MISSILES own medic"], target_team)
+                else:
+                    add_event(tag_time_ms,
+                              f"{aggressor_entity.name} tags own medic {target_entity.name}",
+                              [aggressor_entity.name, "tags own medic"], target_team)
+
         event_index += 1
 
     sort_notable_events(result)

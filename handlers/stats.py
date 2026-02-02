@@ -7,7 +7,7 @@ from db.player import Player
 from db.sm5 import SM5Game
 from db.types import Team, IntRole
 from helpers import statshelper
-from helpers.cachehelper import cache_template
+from helpers.cachehelper import cache_template, precache_template
 from helpers.statshelper import sentry_trace
 from shared import app
 from utils import render_cached_template
@@ -15,7 +15,8 @@ from utils import render_cached_template
 
 @app.get("/stats")
 @sentry_trace
-@cache_template()
+@cache_template(ttl=60*60*24)  # Cache for 24 hours
+@precache_template()
 async def stats(request: Request) -> str:
     logger.info("Loading stats page")
 
@@ -25,8 +26,11 @@ async def stats(request: Request) -> str:
     total_games = await SM5Game.all().count() + await LaserballGame.all().count()
     ranked_games = await SM5Game.filter(ranked=True).count() + await LaserballGame.filter(ranked=True).count()
     total_games_played = await EntityEnds.all().count()
-    ranking_accuracy = await statshelper.get_ranking_accuracy()
 
+    logger.debug("Calculating predictive accuracy")
+
+    predictive_accuracy = await statshelper.get_predictive_accuracy()
+    
     logger.debug("Loading SM5 stats")
 
     sm5_red_wins = await SM5Game.filter(winner=Team.RED, ranked=True).count()
@@ -37,13 +41,21 @@ async def stats(request: Request) -> str:
     medic_hits = await statshelper.get_medic_hits()
     own_medic_hits = await statshelper.get_own_medic_hits()
 
-    logger.debug("Loading SM5 role stats")
+    logger.debug("Loading SM5 role stats by score")
 
-    top_commanders = await statshelper.get_top_role_players(role=IntRole.COMMANDER)
-    top_heavies = await statshelper.get_top_role_players(role=IntRole.HEAVY)
-    top_scouts = await statshelper.get_top_role_players(role=IntRole.SCOUT)
-    top_ammos = await statshelper.get_top_role_players(role=IntRole.AMMO)
-    top_medics = await statshelper.get_top_role_players(role=IntRole.MEDIC)
+    top_commanders_score = await statshelper.get_top_role_players_score(5, IntRole.COMMANDER, 5)
+    top_heavies_score = await statshelper.get_top_role_players_score(5, IntRole.HEAVY, 5)
+    top_scouts_score = await statshelper.get_top_role_players_score(5, IntRole.SCOUT, 5)
+    top_ammos_score = await statshelper.get_top_role_players_score(5, IntRole.AMMO, 5)
+    top_medics_score = await statshelper.get_top_role_players_score(5, IntRole.MEDIC, 5)
+    
+    logger.debug("Loading SM5 role stats by rating")
+
+    top_commanders_rating = await statshelper.get_top_role_players_rating(5, IntRole.COMMANDER)
+    top_heavies_rating = await statshelper.get_top_role_players_rating(5, IntRole.HEAVY)
+    top_scouts_rating = await statshelper.get_top_role_players_rating(5, IntRole.SCOUT)
+    top_ammos_rating = await statshelper.get_top_role_players_rating(5, IntRole.AMMO)
+    top_medics_rating = await statshelper.get_top_role_players_rating(5, IntRole.MEDIC)
 
     logger.debug("Loading laserball stats")
 
@@ -68,7 +80,7 @@ async def stats(request: Request) -> str:
                                         total_games=total_games,
                                         ranked_games=ranked_games,
                                         total_games_played=total_games_played,
-                                        ranking_accuracy=ranking_accuracy,
+                                        predictive_accuracy=predictive_accuracy,
 
                                         # sm5 stats
 
@@ -80,13 +92,21 @@ async def stats(request: Request) -> str:
                                         medic_hits=medic_hits,
                                         own_medic_hits=own_medic_hits,
 
-                                        # sm5 role stats
+                                        # sm5 role stats by score
 
-                                        top_commanders=top_commanders,
-                                        top_heavies=top_heavies,
-                                        top_scouts=top_scouts,
-                                        top_ammos=top_ammos,
-                                        top_medics=top_medics,
+                                        top_commanders_score=top_commanders_score,
+                                        top_heavies_score=top_heavies_score,
+                                        top_scouts_score=top_scouts_score,
+                                        top_ammos_score=top_ammos_score,
+                                        top_medics_score=top_medics_score,
+
+                                        # sm5 role stats by rating
+
+                                        top_commanders_rating=top_commanders_rating,
+                                        top_heavies_rating=top_heavies_rating,
+                                        top_scouts_rating=top_scouts_rating,
+                                        top_ammos_rating=top_ammos_rating,
+                                        top_medics_rating=top_medics_rating,
 
                                         # laserball stats
 

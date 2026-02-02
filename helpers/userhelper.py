@@ -1,4 +1,4 @@
-from statistics import median
+from statistics import median, StatisticsError
 from typing import List, Optional
 
 import bcrypt
@@ -7,6 +7,7 @@ from db.game import EntityEnds, EntityStarts
 from db.player import Player
 from db.sm5 import SM5Game
 from db.types import IntRole
+from sanic.log import logger
 
 
 async def player_from_token(game: SM5Game, token: str) -> EntityStarts:
@@ -30,7 +31,11 @@ async def get_median_role_score(player: Optional[Player] = None) -> List[int]:
                 score = median(
                     await EntityEnds.filter(entity__role=IntRole(role), entity__sm5games__ranked=True).values_list(
                         "score", flat=True))
-        except Exception:
+        except StatisticsError:
+            # empty data, no median can be calculated
+            score = 0
+        except Exception as e:
+            logger.error(f"Error calculating median score for role {role}: {e}")
             score = 0
         if score:
             data.append(int(score))
@@ -82,9 +87,9 @@ def check_password(password: str, hashed: str) -> bool:
         return False
 
 
-def to_hex(tag: str) -> str:
+def rfid_to_hex(tag: str) -> str:
     return "LF/0D00" + hex(int(tag)).strip("0x").upper()
 
 
-def to_decimal(tag: str) -> str:
+def rfid_to_decimal(tag: str) -> str:
     return "000" + str(int(tag.strip("LF/").strip("0D00"), 16))

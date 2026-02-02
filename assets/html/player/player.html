@@ -1,229 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Viewing {{ player.codename }}{% endblock %}
+{% block title %}{{ player.codename }}{% endblock %}
+{% block meta_description %}Player profile page for {{ player.codename }} including recent games and statistics.{% endblock %}
 
 {% block html_head %}
+<link rel="stylesheet" href="/assets/css/player/player.css">
+<link rel="canonical" href="https://www.iplaylaserforce.com/player/{{ player.codename }}">
 
-<style type="text/css">
-    .important {
-        color: #336699;
-    }
-
-    .sidebar {
-        margin: 0;
-        padding: 0;
-        width: 200px;
-        background: linear-gradient(180deg, rgba(26, 26, 26, 0.95) 0%, rgba(26, 26, 26, 0.76) 100%);
-        position: fixed;
-        height: 100%;
-        overflow: auto;
-    }
-
-    .paging {
-        margin-top: 16px;
-        margin-left: auto;
-        margin-right: auto;
-        width: 80%;
-        font-size: 24;
-    }
-
-    .win-chance {
-        position: relative;
-        height: 4rem;
-        display: flex;
-        justify-content: center;
-    }
-
-    .sidebar a {
-        display: block;
-        color: white;
-        padding: 16px;
-        text-decoration: none;
-    }
-
-    .sidebar a.active {
-        background-color: #0096FF;
-        color: white;
-    }
-
-    .content {
-        margin-top: 20px;
-    }
-
-    body {
-        background-color: #121212;
-    }
-
-    h1 {
-        margin-bottom: 0;
-    }
-
-    h3, h5 {
-        margin-top: 0.75rem;
-        margin-bottom: 0;
-    }
-
-    h1, h3, h5 {
-        padding-left: 1rem;
-        padding-right: 1rem;
-    }
-
-    table {
-        margin: auto;
-        padding: 1rem;
-        border: 1px solid lightgray;
-        border-collapse: collapse;
-        width: 80%;
-    }
-
-    tr:nth-child(even) {
-        background-color: #252525;
-    }
-
-    th, td, tr {
-        text-align: center;
-        border: 1px solid lightgray;
-        padding: 5px;
-    }
-
-    td {
-        color: lightgray;
-    }
-
-    .recent_games {
-        margin-top: 5rem;
-        margin-bottom: 5rem;
-
-        margin-left: auto;
-        margin-right: auto;
-    }
-
-    .info-div {
-        float: left;
-        margin-left: 0;
-        margin-right: 0;
-    }
-
-    .ipl-div {
-        float: right;
-        margin-left: 0;
-        margin-right: 0;
-        margin-top: 2.094rem;
-    }
-
-    .right_align {
-        text-align: right;
-    }
-
-    .button-div {
-        float: left;
-    }
-
-    .left-div {
-        float: left;
-        margin: auto;
-        margin-top: 2rem;
-    }
-
-    .left-side {
-        float: left;
-    }
-
-    .right-side {
-        float: right;
-    }
-
-    .rating-over-time {
-        position: relative;
-        width: 500px;
-        margin-top: 2rem;
-        height: 400px;
-        float: left;
-    }
-
-    .btn {
-        height: 9rem;
-    }
-
-    @media screen and (max-width: 991px) {
-        .btn {
-            height: 9em;
-        }
-
-        h1 {
-            text-align: center;
-        }
-
-        .info-div {
-            float: none;
-            margin: auto;
-            zoom: 1.5;
-        }
-
-        .info-div span {
-            text-align: center;
-        }
-
-        .ipl-div {
-            text-align: center;
-            float: none;
-            margin: auto;
-            zoom: 1.5;
-        }
-
-        .userlist {
-            margin: auto;
-            width: 90%;
-        }
-
-        .recent_games {
-            margin-top: 2.5rem;
-        }
-
-        table tr td:nth-child(n+6) {
-            display: none;
-        }
-        
-        table tr th:nth-child(n+6) {
-            display: none;
-        }
-
-        .recent_games h2 {
-            zoom: 1.5;
-        }
-
-        .right_align {
-            text-align: center;
-        }
-
-        .button-div {
-            float: none;
-            margin: auto;
-        }
-
-        .left-div {
-            float: none;
-        }
-
-        .left-side {
-            float: none;
-            margin: auto;
-        }
-
-        .right-side {
-            float: none;
-            margin: auto;
-        }
-    }
-
-    @media screen and (min-width: 992px) {
-        .stats {
-            display: flex;
-            flex-direction: row;
-            justify-content: space-evenly;
-            margin-top: 2rem;
-        }
-    }
-</style>
+{% if sm5page > 0 or lbpage > 0 %}
+<meta name="robots" content="noindex, follow">
+{% else %}
+<meta name="robots" content="index, follow">
+{% endif %}
 
 {% endblock %}
 
@@ -253,6 +40,7 @@
                         <th>Game</th>
                         <th>Win/Loss</th>
                         <th>Rating</th>
+                        <th>Rating Diff</th>
                         <th>Role</th>
                         <th>Score</th>
                         <th>Lives Left</th>
@@ -273,9 +61,13 @@
                         <tr>
                             <td><a href="/game/sm5/{{game.id}}">{{ game.start_time.strftime("%Y/%m/%d %I:%M %p") }}</a></td>
                             <td style="color: {{ 'greenyellow' if entity_start.team.enum == game.winner else 'orangered' }}">{{ "Win" if entity_start.team.enum == game.winner else "Loss" }}</td>
-                            {% if entity_end.current_rating_mu != 25 %}
-                            <td title="mu: {{ ('%.2f' % (entity_end.current_rating_mu|round(2))) if entity_end.current_rating_mu else 25 }}, sigma: {{ ('%.2f' % (entity_end.current_rating_sigma|round(2))) if entity_end.current_rating_sigma else 8.33 }}" style="font-weight: 500; color: white;">{{ ('%.2f' % (entity_end.current_rating_mu - 3 * entity_end.current_rating_sigma)|round(2)) if entity_end.current_rating_mu and entity_end.current_rating_sigma else 0}}</td>
+                            {% if entity_end and entity_end.current_rating_mu != 25 %}
+                                <td title="mu: {{ ('%.2f' % (entity_end.current_rating_mu|round(2))) if entity_end.current_rating_mu else 25 }}, sigma: {{ ('%.2f' % (entity_end.current_rating_sigma|round(2))) if entity_end.current_rating_sigma else 8.33 }}" style="font-weight: 500; color: white;">{{ ('%.2f' % (entity_end.current_rating_mu - 3 * entity_end.current_rating_sigma)|round(2)) if entity_end.current_rating_mu and entity_end.current_rating_sigma else 0}}</td>
+                                <td title="mu: {{ entity_end.rating_difference_mu|round(2) }}, sigma: {{ entity_end.rating_difference_sigma|round(2)}}"
+                                class="{% if entity_end.rating_difference < 0 %}fire-team{% elif entity_end.rating_difference > 0 %}earth-team{% endif %}">
+                                {% if entity_end.rating_difference > 0 %}+{% endif %}{{ entity_end.rating_difference|round(2) }}
                             {% else %}
+                                <td></td>
                                 <td></td>
                             {% endif %}
                             <td style="width: 30px;"><img src="/assets/sm5/roles/{{entity_start.role|string|lower}}.png" alt="role image" width="30" height="30"></td>
@@ -307,6 +99,7 @@
                         <th>Game</th>
                         <th>Win/Loss</th>
                         <th>Rating</th>
+                        <th>Rating Diff</th>
                         <th>Goals</th>
                         <th>Assists</th>
                         <th>Steals</th>
@@ -333,7 +126,12 @@
                             <td style="color: {{ 'greenyellow' if entity_start.team.enum == game.winner else 'orangered' }}">{{ "Win" if entity_start.team.enum == game.winner else "Loss" }}</td>
                             {% if entity_end.current_rating_mu != 25 %}
                                 <td title="mu: {{ ('%.2f' % (entity_end.current_rating_mu|round(2))) if entity_end.current_rating_mu else 25 }}, sigma: {{ ('%.2f' % (entity_end.current_rating_sigma|round(2))) if entity_end.current_rating_sigma else 8.33 }}" style="font-weight: 500; color: white;">{{ ('%.2f' % (entity_end.current_rating_mu - 3 * entity_end.current_rating_sigma)|round(2)) if entity_end.current_rating_mu and entity_end.current_rating_sigma else 0}}</td>
+                                <td title="mu: {{ entity_end.rating_difference_mu|round(2) }}, sigma: {{ entity_end.rating_difference_sigma|round(2)}}"
+                                class="{% if entity_end.rating_difference < 0 %}fire-team{% elif entity_end.rating_difference > 0 %}earth-team{% endif %}">
+                                {% if entity_end.rating_difference > 0 %}+{% endif %}{{ entity_end.rating_difference|round(2) }}
+                            </td>
                             {% else %}
+                                <td></td>
                                 <td></td>
                             {% endif %}
                             <td>{{ laserball_stats.goals }}</td>
@@ -372,38 +170,34 @@
                         <div class="btn">
                             <div class="win-chance">
                                 {% if laserball_win_percent %}
-                                <canvas id="laserball_teams"></canvas>
+                                    <canvas id="laserball_teams"></canvas>
                                 {% else %}
-                                <canvas id="laserball_teams" style="opacity: 0;"></canvas>
+                                    <canvas id="laserball_teams" style="opacity: 0;"></canvas>
                                 {% endif %}
                             </div>
                             <p style="font-size: 14px;" title="{{red_wins_laserball+blue_wins_laserball}}/{{(red_teams_laserball+blue_teams_laserball)}}">Win Percent: {{ '%.2f' % ((laserball_win_percent*100)|round(2)) }}%</p>
                             <p>Laserball Teams</p>
                         </div>
                     </div>
+
+                    <canvas class="inline-block mobile-middle" id="games_played_per_role" style="max-width: 500px; clear: both; margin-top: 2rem;" height="250px" class="left-side"></canvas>
                     
-                    <canvas class="inline-block" id="avg_role_score" style="max-width: 500px; clear: both; margin-top: 2rem;" height="200px" class="left-side"></canvas>
-                    <canvas class="inline-block" id="games_played_per_role" style="max-width: 500px; clear: both; margin-top: 2rem;" height="200px" class="left-side"></canvas>
                 </div>
 
-                
                 <div>
-                    {% if role_plot_total_roles > 2 %}
-                    <canvas class="inline-block" id="avg_role_score_radar" style="max-width: 500px; margin-top: 2rem;" height="475px" width="475px" class="right-side"></canvas>
-                    {% else %}
-                    <p style="color: white; max-width: 500px; margin-top: 2rem; text-align: center; font-size: 1.5rem;">Not enough data to display radar chart</p>
-                    {% endif %}
+                    <canvas class="inline-block mobile-middle" id="per_role_ratings" style="min-width: 400px; max-width: 500px;" height="300px" class="right-side"></canvas>
+                    <canvas class="inline-block mobile-middle" id="avg_role_score" style="max-width: 500px; clear: both; margin-top: 2rem;" height="200px" class="right-side"></canvas>
                 </div>
             </div>
 
             <div class="stats">
                 {% if sm5_rating_over_time_data %}
-                <div class="rating-over-time">
+                <div class="rating-over-time mobile-middle">
                     <canvas class="inline-block" id="sm5_rating_over_time"></canvas>
                 </div>
                 {% endif %}
                 {% if laserball_rating_over_time_data %}
-                <div class="rating-over-time">
+                <div class="rating-over-time mobile-middle">
                     <canvas class="inline-block" id="laserball_rating_over_time"></canvas>
                 </div>
                 {% endif %}
@@ -420,7 +214,6 @@
                                 <td>Favorite Role</td>
                                 <td>Favorite Battlesuit</td>
                                 <td>Accuracy</td>
-                                <td>Sean Hits</td>
                             </th>
                             <tr>
                                 <td>SM5</td>
@@ -428,7 +221,6 @@
                                 <td>{{ favorite_role_sm5 }}</td>
                                 <td>{{ favorite_battlesuit_sm5 }}</td>
                                 <td>{{ '%.2f' % (((shots_hit_sm5/shots_fired_sm5)*100)|round(2) if shots_fired_sm5 != 0 else 0) }}%</td>
-                                <td>{{ sean_hits_sm5 }}</td>
                             </tr>
                             <tr>
                                 <td>Laserball</td>
@@ -436,7 +228,6 @@
                                 <td>N/A</td>
                                 <td>{{ favorite_battlesuit_laserball }}</td>
                                 <td>{{ '%.2f' % ((shots_hit_laserball/shots_fired_laserball)*100)|round(2) if shots_fired_laserball != 0 else 0 }}%</td>
-                                <td>{{ sean_hits_laserball }}</td>
                             </tr>
                             <tr>
                                 <td>Overall</td>
@@ -444,7 +235,6 @@
                                 <td>{{ favorite_role_sm5 }}</td>
                                 <td>{{ favorite_battlesuit }}</td>
                                 <td>{{ '%.2f' % ((shots_hit/shots_fired)*100)|round(2) if shots_fired != 0 else 0 }}%</td>
-                                <td>{{ sean_hits }}</td>
                             </tr>
                         </table>
                     </div>
@@ -642,56 +432,50 @@
         }
     });
 
-    // median score vs world radar chart
+    // sm5 rating for each role
 
-    new Chart("avg_role_score_radar", {
-        type: "radar",
+    new Chart("per_role_ratings", {
+        type: "bar",
         data: {
-            labels: {{ role_plot_labels_with_game_count }},
+            labels: {{ role_names }},
             datasets: [
                 {
-                    label: "Player's Median Score",
-                    data: {{ role_plot_data_player }},
-                    backgroundColor: "rgba(50, 116, 161, 0.5)"
-                },
-                {
-                    label: "World's Median Score",
-                    data: {{ role_plot_data_world }},
-                    backgroundColor: "rgba(50, 166, 161, 0.5)"
+                    label: "Player's SM5 Rating",
+                    data: {{ per_role_ratings }},
+                    backgroundColor: [
+                        "rgb(50, 116, 161)",
+                        "rgb(225, 129, 44)",
+                        "rgb(58, 146, 58)",
+                        "rgb(192, 61, 62)",
+                        "rgb(147, 114, 178)"
+                    ]
                 }
             ]
         },
         options: {
+            scales: {
+                y: {
+                    ticks: {
+                        min: 0,
+                    },
+                    stacked: false,
+                },
+                x: {
+                    gridLines: {
+                        display: false,
+                    },
+                    stacked: false
+                },
+            },
             plugins: {
+                legend: {
+                    labels: {
+                        color: "rgb(255, 255, 255)"
+                    }
+                },
                 title: {
                     display: true,
-                    text: "Median player score vs median world score",
-                    color: "white"
-                }
-            },
-            scales: {
-                r: {
-                    grid: {
-                        color: "rgba(255, 255, 255, 255)"
-                    },
-                    ticks: {
-                        display: true, // Hides the labels in the middle (numbers)
-                        backdropColor: "rgba(0, 0, 0, 0)", // Hide the lines
-                        beginAtZero: true,
-                        min: 0,
-                        // put above graph
-                        z: 2
-                    },
-                    pointLabels: {
-                        font: {
-                            size: 12
-                        }
-                    }
-                }
-            },
-            elements: {
-                point: {
-                    radius: 5,
+                    text: "Player's SM5 Rating per Role"
                 }
             }
         }

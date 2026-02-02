@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import List, Tuple, Optional, Callable, Any
 
 from sentry_sdk import Hub, start_transaction
-from tortoise.expressions import Q
+from tortoise.expressions import Q, F
 from tortoise.fields import ManyToManyRelation
 from tortoise.functions import Sum
 
@@ -11,7 +11,8 @@ from db.game import EntityEnds, EntityStarts, PlayerInfo
 from db.laserball import LaserballGame, LaserballStats
 from db.sm5 import SM5Game, SM5Stats
 from db.types import IntRole, EventType, PlayerStateDetailType, PlayerStateType, PlayerStateEvent, Team, PieChartData
-from helpers.cachehelper import cache
+from db.player import Player
+from helpers.cachehelper import cache, precache
 
 # stats helpers
 
@@ -467,7 +468,8 @@ Very general stats
 
 """
 
-
+@cache()
+@precache()
 async def get_points_scored() -> int:
     """
     Gets the total points scored by going through
@@ -484,7 +486,8 @@ async def get_points_scored() -> int:
 
     return points
 
-
+@cache()
+@precache()
 async def get_nukes_launched() -> int:
     """
     Gets the total nukes launched by going through
@@ -498,7 +501,8 @@ async def get_nukes_launched() -> int:
 
     return nukes
 
-
+@cache()
+@precache()
 async def get_nukes_cancelled() -> int:
     """
     Gets the total nukes cancelled by going through
@@ -512,7 +516,8 @@ async def get_nukes_cancelled() -> int:
 
     return nukes
 
-
+@cache()
+@precache()
 async def get_medic_hits() -> int:
     """
     Gets the total medic hits by going through
@@ -526,7 +531,8 @@ async def get_medic_hits() -> int:
 
     return hits
 
-
+@cache()
+@precache()
 async def get_own_medic_hits() -> int:
     """
     Gets the total own medic hits by going through
@@ -543,6 +549,8 @@ async def get_own_medic_hits() -> int:
 
 # laserball totals
 
+@cache()
+@precache()
 async def get_goals_scored() -> int:
     """
     Gets the total goals scored by going through
@@ -554,7 +562,8 @@ async def get_goals_scored() -> int:
     return sum(await LaserballStats.filter(laserballgames__ranked=True).annotate(sum=Sum("goals")).values_list("sum",
                                                                                                                flat=True))
 
-
+@cache()
+@precache()
 async def get_assists() -> int:
     """
     Gets the total assists by going through
@@ -566,7 +575,8 @@ async def get_assists() -> int:
     return sum(await LaserballStats.filter(laserballgames__ranked=True).annotate(sum=Sum("assists")).values_list("sum",
                                                                                                                  flat=True))
 
-
+@cache()
+@precache()
 async def get_passes() -> int:
     """
     Gets the total passes by going through
@@ -578,7 +588,8 @@ async def get_passes() -> int:
     return sum(await LaserballStats.filter(laserballgames__ranked=True).annotate(sum=Sum("passes")).values_list("sum",
                                                                                                                 flat=True))
 
-
+@cache()
+@precache()
 async def get_steals() -> int:
     """
     Gets the total steals by going through
@@ -590,7 +601,8 @@ async def get_steals() -> int:
     return sum(await LaserballStats.filter(laserballgames__ranked=True).annotate(sum=Sum("steals")).values_list("sum",
                                                                                                                 flat=True))
 
-
+@cache()
+@precache()
 async def get_clears() -> int:
     """
     Gets the total clears by going through
@@ -602,7 +614,8 @@ async def get_clears() -> int:
     return sum(await LaserballStats.filter(laserballgames__ranked=True).annotate(sum=Sum("clears")).values_list("sum",
                                                                                                                 flat=True))
 
-
+@cache()
+@precache()
 async def get_blocks() -> int:
     """
     Gets the total blocks by going through
@@ -617,9 +630,11 @@ async def get_blocks() -> int:
 
 # top roles
 # could be improved by accounting for the amount of games played
-# could be combined into one function
 
-async def get_top_role_players(amount: int = 5, role: IntRole = IntRole.COMMANDER, min_games: int = 5) -> List[
+@cache(ttl=60*60*24)  # cache for 24 hours
+@precache([5, IntRole.SCOUT, 5], [5, IntRole.HEAVY, 5], [5, IntRole.COMMANDER, 5],
+          [5, IntRole.AMMO, 5], [5, IntRole.MEDIC, 5])
+async def get_top_role_players_score(amount: int = 5, role: IntRole = IntRole.COMMANDER, min_games: Optional[int] = 5) -> List[
     Tuple[str, int, int]]:
     """
     Gets the top players of a given role by going through
@@ -646,10 +661,40 @@ async def get_top_role_players(amount: int = 5, role: IntRole = IntRole.COMMANDE
     return sorted([(name, score // games, games) for name, (score, games) in players.items()], key=lambda x: x[1],
                   reverse=True)[:amount]
 
+@cache(ttl=60*60*24)  # cache for 24 hours
+@precache([5, IntRole.SCOUT], [5, IntRole.HEAVY], [5, IntRole.COMMANDER],
+          [5, IntRole.AMMO], [5, IntRole.MEDIC])
+async def get_top_role_players_rating(amount: int = 5, role: IntRole = IntRole.COMMANDER) -> List[Tuple[str, float, int]]:
+    """
+    Gets the top players of a given role sorting
+    the players by their role rating
 
-# get ranking accuracy
+    Minimum amount of games is not considered here because
+    it takes a lot of extra effort and processing power,
+    plus the sigma value already accounts for uncertainty
+    """
 
-async def get_ranking_accuracy() -> float:
+    players = await Player.filter().limit(amount).annotate(ord=F(f"{str(role).lower()}_mu") - 3 * F(f"{str(role).lower()}_sigma")).order_by("-ord")
+
+    ratings = []
+
+    for player in players:
+        mu = getattr(player, f"{str(role).lower()}_mu")
+        sigma = getattr(player, f"{str(role).lower()}_sigma")
+        rating = mu - 3 * sigma
+
+        num_games = await EntityEnds.filter(sm5games__ranked=True, sm5games__mission_name__icontains="space marines",
+                                            entity__role=role, entity__entity_id=player.entity_id).count()
+
+        ratings.append((player.codename, rating, num_games))
+
+    return ratings
+
+
+
+@cache(ttl=60*60*24)
+@precache()
+async def get_predictive_accuracy(*, _sample_size: int=99999) -> float:
     """
     Ranks how accurate the ranking system is
     at predicting the winner of a game
@@ -660,24 +705,94 @@ async def get_ranking_accuracy() -> float:
     correct = 0
     total = 0
 
-    for game in await SM5Game.filter(ranked=True).all():
+
+    for game in await SM5Game.filter(ranked=True).order_by("start_time").limit(_sample_size):
+        if game.team1_size != game.team2_size:
+            # only consider games with equal team sizes
+            continue
+
         red_chance, green_chance = await game.get_win_chance_before_game()
         red_score, green_score = await game.get_team_score(Team.RED), await game.get_team_score(Team.GREEN)
 
         # see if scores are close enough
-        if int(red_chance) == int(green_chance) and abs(red_score - green_score) <= 3000:
-            # if so, add 2 to correct
-            # it means we did a phoenomenal job at predicting the winner
-            # technically this means our rating could be higher than 100%
-            # but let's treat it like extra credit :)
-            correct += 2
-        elif red_chance >= green_chance and red_score > green_score:
+        # win chance 40-60% and score diff is less than 10%
+        if abs(red_chance - green_chance) <= 0.2 and abs(red_score - green_score) <= 0.10*(red_score + green_score):
+            # if so, add 1 to correct
+            # it means we did a phoenomenal job at predicting the winner (or at least a close game)
             correct += 1
-        elif green_chance >= red_chance and green_score > red_score:
+        elif red_chance > green_chance and red_score > green_score:
+            correct += 1
+        elif green_chance > red_chance and green_score > red_score:
             correct += 1
         total += 1
 
     return correct / total if total != 0 else 0
+
+@cache(ttl=60*60*24)
+@precache()
+async def get_brier_score(*, _sample_size: int=99999) -> float:
+    """
+    Computes the mean Brier score for win probability predictions.
+    Lower is better. Range: [0, 1].
+    """
+
+    total = 0
+    brier_sum = 0.0
+
+    for game in await SM5Game.filter(ranked=True).order_by("start_time").limit(_sample_size):
+
+        red_chance, green_chance = await game.get_win_chance_before_game()
+        red_score = await game.get_team_score(Team.RED)
+        green_score = await game.get_team_score(Team.GREEN)
+
+        # define outcome from red team's perspective
+        outcome = 1 if red_score > green_score else 0
+
+        brier_sum += (red_chance - outcome) ** 2
+        total += 1
+
+    return brier_sum / total if total != 0 else 0.0
+
+@cache(ttl=60*60*24)
+@precache()
+async def get_margin_prediction_error(*, _sample_size: int=99999) -> float:
+    """
+    Computes mean squared margin error (MSME) for the ranking system.
+
+    Compares predicted win probability to normalized score margin:
+        actual_margin = (red_score - green_score) / (red_score + green_score)
+        predicted_margin = 2 * red_win_probability - 1
+
+    Lower values indicate better alignment between predicted confidence
+    and actual game dominance.
+    """
+
+    total_error = 0.0
+    total_games = 0
+
+    for game in await SM5Game.filter(ranked=True).order_by("start_time").limit(_sample_size):
+
+        red_chance, green_chance = await game.get_win_chance_before_game()
+        red_score = await game.get_team_score(Team.RED)
+        green_score = await game.get_team_score(Team.GREEN)
+
+        # Skip invalid or empty games
+        if red_score + green_score == 0:
+            continue
+
+        # Actual normalized score margin in [-1, 1]
+        actual_margin = (red_score - green_score) / (red_score + green_score)
+
+        # Predicted margin proxy from win probability
+        predicted_margin = 2 * red_chance - 1
+
+        # Squared error
+        error = (predicted_margin - actual_margin) ** 2
+
+        total_error += error
+        total_games += 1
+
+    return total_error / total_games if total_games > 0 else 0.0
 
 
 # performance helpers
@@ -695,6 +810,8 @@ def sentry_trace(func) -> Callable:
         else:
             with start_transaction(op=func.__name__, name=func.__name__):
                 return await func(*args, **kwargs)
+            
+    wrapper.__name__ = func.__name__
 
     return wrapper
 

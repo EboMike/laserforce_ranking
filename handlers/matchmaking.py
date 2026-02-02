@@ -5,7 +5,8 @@ from sanic.log import logger
 from db.player import Player
 from helpers import ratinghelper
 from shared import app
-from utils import render_template
+from utils import render_cached_template, render_template
+from helpers.cachehelper import cache_template, precache_template
 
 
 class FakePlayer:
@@ -41,6 +42,8 @@ class FakePlayer:
 
 
 @app.get("/matchmaking")
+@cache_template()
+@precache_template()
 async def matchmaking(request: Request) -> str:
     players = await Player.all()
     players = sorted(players, key=lambda x: x.codename)
@@ -49,9 +52,8 @@ async def matchmaking(request: Request) -> str:
     logger.debug("Getting ratings for all players")
     all_players = {player.codename: (player.sm5_rating.ordinal(), player.laserball_rating.ordinal()) for player in
                    players}
-    
 
-    return await render_template(
+    return await render_cached_template(
         request,
         "matchmaking.html",
         players=players,

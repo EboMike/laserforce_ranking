@@ -3,29 +3,7 @@
 
 
 {% block html_head %}
-<style>
-    #banner_text {
-        width: 400px;
-        background: #262626;
-        border: 1px solid #999;
-        border-radius: 4px;
-        color: #fff;
-        height: 4em;
-        font-size: 1em;
-        padding: 0.5em;
-    }
-
-    #banner_type {
-        width: 200px;
-        background: #262626;
-        border: 1px solid #999;
-        border-radius: 4px;
-        color: #fff;
-        height: 4em;
-        font-size: 1em;
-        padding: 0.5em;
-    }
-</style>
+<link rel="stylesheet" href="/assets/css/admin/index.css">
 
 <script>
     function getCookie() {
@@ -100,6 +78,39 @@
         });
     }
 
+    function audit_ranked_status_sm5() {
+        alert("Auditing ranked status for SM5 in background...");
+        fetch("/admin/audit_ranked_status/sm5", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCookie("csrftoken")
+            }
+        });
+    }
+
+    function audit_ranked_status_laserball() {
+        alert("Auditing ranked status for Laserball in background...");
+        fetch("/admin/audit_ranked_status/laserball", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCookie("csrftoken")
+            }
+        });
+    }
+
+    function audit_ranked_status_all() {
+        alert("Auditing ranked status for all games in background...");
+        fetch("/admin/audit_ranked_status/all", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCookie("csrftoken")
+            }
+        });
+    }
+
     function flush_cache() {
         alert("Flushing cache in background...");
         fetch("/admin/flush_cache", {
@@ -137,18 +148,21 @@
 
 <h1 style="text-align: center;">Dashboard</h1>
 
-<div style="display: flex; flex-direction: row; gap: 10px;">
+<div style="display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; margin-left: 1rem; margin-right: 1rem;">
     <button onclick="recalculate_ratings()" class="button">Recalculate Ratings</button>
     <button onclick="recalculate_sm5_ratings()" class="button">Recalculate SM5 Ratings</button>
     <button onclick="recalculate_laserball_ratings()" class="button">Recalculate Laserball Ratings</button>
     <button onclick="migrate_games()" class="button">Migrate Games</button>
     <button onclick="backfill_events()" class="button">Backfill Events</button>
+    <button onclick="audit_ranked_status_sm5()" class="button">Audit Ranked Status SM5</button>
+    <button onclick="audit_ranked_status_laserball()" class="button">Audit Ranked Status Laserball</button>
+    <button onclick="audit_ranked_status_all()" class="button">Audit Ranked Status All</button>
     <button onclick="flush_cache()" class="button">Flush Cache</button>
 </div>
 
 <!-- Banner -->
 
-<div style="display: flex; flex-direction: row; gap: 10px; margin-top: 5rem;">
+<div style="display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; margin-top: 5rem; margin-left: 1rem; margin-right: 1rem;">
     <input type="text" id="banner_text" placeholder="Banner Text" id="banner_text">
     <select id="banner_type" id="banner_type">
         <option value="info">Info</option>

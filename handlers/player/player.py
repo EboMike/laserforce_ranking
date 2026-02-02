@@ -1,5 +1,6 @@
-from typing import Union, Optional
+from typing import Union, Optional, List, Tuple
 from urllib.parse import unquote
+from tortoise.expressions import F
 
 from sanic import Request, response, exceptions
 from sanic.log import logger
@@ -8,14 +9,14 @@ from db.game import EntityEnds, EntityStarts
 from db.laserball import LaserballGame, LaserballStats
 from db.player import Player
 from db.sm5 import SM5Game, SM5Stats
-from db.types import GameType, Team
-from helpers.cachehelper import cache_template
+from db.types import GameType, Team, Role
+from helpers.cachehelper import cache_template, precache_template
 from helpers.laserballhelper import get_laserball_rating_over_time
 from helpers.sm5helper import get_sm5_rating_over_time
 from helpers.statshelper import sentry_trace, create_time_series_ordered_graph
 from helpers.userhelper import get_median_role_score, get_per_role_game_count
 from shared import app
-from utils import render_cached_template, get_post
+from utils import render_cached_template
 
 _GAMES_PER_PAGE = 5
 _ROLES = [
@@ -25,8 +26,6 @@ _ROLES = [
     "Ammo",
     "Medic",
 ]
-
-sql = app.ctx.sql
 
 
 async def get_entity_start(game, player) -> Optional[EntityStarts]:
@@ -72,13 +71,37 @@ def get_games_per_role_filtered(games_per_role: list[int]) -> list:
         game_count for game_count in games_per_role if game_count > 0
     ]
 
+async def precache_rule() -> Tuple[List, List]:
+    arglist = []
+    kwarglist = []
+
+    # cache top 25 sm5 players
+    top_sm5_players = await Player.all().limit(25).annotate(sm5_ord=F("sm5_mu") - 3 * F("sm5_sigma")).order_by("-sm5_ord")
+    for player in top_sm5_players:
+        arglist.append([])
+        kwarglist.append({
+            "id": player.codename
+        })
+
+    return arglist, kwarglist
+
 
 @app.get("/player/<id>")
 @sentry_trace
 @cache_template()
+@precache_template(rule=precache_rule)
 async def player_get(request: Request, id: Union[int, str]) -> str:
-    sm5page = int(request.args.get("sm5page", 0))
-    lbpage = int(request.args.get("lbpage", 0))
+    sm5page = request.args.get("sm5page", 0)
+    lbpage = request.args.get("lbpage", 0)
+
+    try:
+        sm5page = int(sm5page)
+        lbpage = int(lbpage)
+    except ValueError:
+        raise exceptions.BadRequest("Invalid page number")
+
+    if sm5page < 0 or lbpage < 0:
+        raise exceptions.BadRequest("Page number cannot be negative")
 
     id = unquote(id)
 
@@ -136,7 +159,6 @@ async def player_get(request: Request, id: Union[int, str]) -> str:
     times_played_sm5 = red_teams_sm5 + green_teams_sm5
     favorite_role_sm5 = await player.get_favorite_role()
     favorite_battlesuit_sm5 = await player.get_favorite_battlesuit(GameType.SM5)
-    sean_hits_sm5 = await player.get_sean_hits(GameType.SM5)
     sm5_shots_hit = await player.get_shots_hit(GameType.SM5)
     sm5_shots_fired = await player.get_shots_fired(GameType.SM5)
 
@@ -145,7 +167,6 @@ async def player_get(request: Request, id: Union[int, str]) -> str:
     # no roles in laserball
     times_played_laserball = red_teams_laserball + blue_teams_laserball
     favorite_battlesuit_laserball = await player.get_favorite_battlesuit(GameType.LASERBALL)
-    sean_hits_laserball = await player.get_sean_hits(GameType.LASERBALL)
     laserball_shots_hit = await player.get_shots_hit(GameType.LASERBALL)
     laserball_shots_fired = await player.get_shots_fired(GameType.LASERBALL)
 
@@ -153,7 +174,6 @@ async def player_get(request: Request, id: Union[int, str]) -> str:
 
     times_played = times_played_sm5 + times_played_laserball
     favorite_battlesuit = await player.get_favorite_battlesuit()
-    sean_hits = sean_hits_sm5 + sean_hits_laserball
     shots_hit = sm5_shots_hit + laserball_shots_hit
     shots_fired = sm5_shots_fired + laserball_shots_fired
 
@@ -203,6 +223,8 @@ async def player_get(request: Request, id: Union[int, str]) -> str:
         role_plot_labels=get_role_labels_from_medians(median_role_score),
         role_plot_labels_with_game_count=get_role_labels_from_medians(median_role_score, per_role_game_count_ranked),
         role_plot_game_count=get_games_per_role_filtered(per_role_game_count_ranked),
+        # role rating plot (sm5)
+        per_role_ratings=[player.get_role_rating(role).ordinal() for role in Role],
         # Games played per role
         per_role_game_count_ranked=per_role_game_count_ranked,
         per_role_game_count_all=per_role_game_count_all,
@@ -215,19 +237,16 @@ async def player_get(request: Request, id: Union[int, str]) -> str:
         times_played_sm5=times_played_sm5,
         favorite_role_sm5=favorite_role_sm5,
         favorite_battlesuit_sm5=favorite_battlesuit_sm5,
-        sean_hits_sm5=sean_hits_sm5,
         shots_hit_sm5=sm5_shots_hit,
         shots_fired_sm5=sm5_shots_fired,
         # laserball
         times_played_laserball=times_played_laserball,
         favorite_battlesuit_laserball=favorite_battlesuit_laserball,
-        sean_hits_laserball=sean_hits_laserball,
         shots_hit_laserball=laserball_shots_hit,
         shots_fired_laserball=laserball_shots_fired,
         # overall
         times_played=times_played,
         favorite_battlesuit=favorite_battlesuit,
-        sean_hits=sean_hits,
         shots_hit=shots_hit,
         shots_fired=shots_fired,
         # rating over time
@@ -236,10 +255,3 @@ async def player_get(request: Request, id: Union[int, str]) -> str:
         laserball_rating_over_time_labels=laserball_rating_over_time_labels,
         laserball_rating_over_time_data=laserball_rating_over_time_data,
     )
-
-
-@app.post("/player")
-async def player_post(request: Request) -> str:
-    data = get_post(request)
-    user = data["userid"]
-    return response.redirect(f"/player/{user}")

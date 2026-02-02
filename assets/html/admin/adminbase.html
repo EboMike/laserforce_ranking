@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <head>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css">
     <link rel="stylesheet" href="/assets/css/app.css">
@@ -6,16 +7,18 @@
 
     <script src="/assets/js/rfid.js"></script>
 
-    <title>Laserforce Ranking Panel - {% block title %}{% endblock %}</title>
+    <title>{{ self.title() }} - Laserforce Ranking Panel</title>
 
-    <meta name="title" content="Laserforce Ranking Panel - {{ self.title() }}">
+    <meta name="title" content="{{ self.title() }} - Laserforce Ranking Panel">
     <meta name="description" content="Laserforce Ranking for Invasion Laser Tag SM5 and Laserball.">
 
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://laserforce.spoo.uk/">
-    <meta property="og:title" content="Laserforce Ranking Panel - {{ self.title() }}">
+    <meta property="og:title" content="{{ self.title() }} - Laserforce Ranking Panel">
     <meta property="og:description" content="Laserforce Ranking for Invasion Laser Tag SM5 and Laserball.">
     <meta property="og:image" content="">
+
+    <meta name="robots" content="noindex">
 
     <script>
         function toggleNav() {
@@ -35,6 +38,13 @@
 
         // sentry
         window.sentryOnLoad = function () {
+            // check if sentry dsn or env are null or ""
+
+            var config = {{ config|tojson }};
+            if (!config["sentry_dsn"] || !config["sentry_environment"]) {
+                return;
+            }
+
             Sentry.init({
                 dsn: {{ config["sentry_dsn"]|tojson }},
 
@@ -53,31 +63,8 @@
         }
     </script>
 
-    <style>
-        /* desktop */
-        @media screen and (min-width: 991px) {
-            .login-item {
-                float: right;
-            }
+    <link rel="stylesheet" href="/assets/css/admin/adminbase.css">
 
-            #content {
-                margin-left: 300px;
-                padding-top: 30px;
-            }
-        }
-        /* mobile */
-        @media screen and (max-width: 991px) {
-            #content {
-                padding-top: 30px;
-                margin: auto;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-            }
-        }
-
-    </style>
-    
     {% block html_head %}{% endblock %}
 </head>
 <body>
@@ -100,10 +87,10 @@
             {% block content %}{% endblock %}
         </div>
     </div>
-  
+
     <div id="footer">
         {% block footer %}
-                
+
         {% endblock %}
     </div>
 </body>

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Tuple
 
 from numpy import arange
 from sanic import Request
@@ -8,28 +8,43 @@ from sanic.log import logger
 from db.game import EntityEnds
 from db.laserball import LaserballGame, LaserballStats, Team as LaserballTeam
 from db.sm5 import SM5Game, Team as SM5Team
-from helpers.cachehelper import cache_template
+from helpers.cachehelper import cache_template, precache_template
 from helpers.gamehelper import get_matchmaking_teams
 from helpers.laserballhelper import get_laserball_player_stats
 from helpers.sm5helper import get_sm5_player_stats, get_sm5_notable_events
 from helpers.statshelper import sentry_trace, get_sm5_team_score_graph_data, \
     millis_to_time
-from helpers.tooltiphelper import TOOLTIP_INFO
 from shared import app
-from utils import is_admin, render_cached_template
+from utils import render_cached_template
 
 
-async def get_entity_end(entity) -> Optional[EntityEnds]:
-    return await EntityEnds.filter(entity=entity).first()
+async def precache_rule() -> Tuple[List, List]:
+    arglist = []
+    kwarglist = []
 
+    # cache 15 most recent SM5 games
+    for game in await SM5Game.all().order_by("-start_time").limit(15):
+        arglist.append([])
+        kwarglist.append({
+            "type": "sm5",
+            "id": game.id
+        })
 
-async def get_laserballstats(entity) -> Optional[LaserballStats]:
-    return await LaserballStats.filter(entity=entity).first()
+    # cache 15 most recent Laserball games
+    for game in await LaserballGame.all().order_by("-start_time").limit(15):
+        arglist.append([])
+        kwarglist.append({
+            "type": "laserball",
+            "id": game.id
+        })
+
+    return arglist, kwarglist
 
 
 @app.get("/game/<type:str>/<id:int>/")
 @sentry_trace
 @cache_template()
+@precache_template(rule=precache_rule)
 async def game_index(request: Request, type: str, id: int) -> str:
     if type == "sm5":
         logger.debug(f"Fetching sm5 game with ID {id}")
@@ -51,7 +66,7 @@ async def game_index(request: Request, type: str, id: int) -> str:
 
         logger.debug("Fetching matchmaking teams")
 
-        players_matchmake_team1, players_matchmake_team2 = get_matchmaking_teams(full_stats.get_team_rosters())
+        players_matchmake_team1, players_matchmake_team2 = await get_matchmaking_teams(full_stats.get_team_rosters())
 
         logger.debug("Fetching win chances")
 
@@ -80,12 +95,7 @@ async def game_index(request: Request, type: str, id: int) -> str:
             players_matchmake_team1=players_matchmake_team1,
             players_matchmake_team2=players_matchmake_team2,
             lives_over_time=full_stats.get_lives_over_time_team_average_line_chart(),
-            notable_events=notable_events,
-            tooltip_info=TOOLTIP_INFO,
-            # TODO: remove this in favor of "team1" and "team2" scores
-            fire_score=await game.get_team_score(SM5Team.RED),
-            earth_score=await game.get_team_score(SM5Team.GREEN),
-            is_admin=is_admin(request)
+            notable_events=notable_events
         )
     elif type == "laserball":
         game = await LaserballGame.filter(id=id).prefetch_related("entity_starts", "entity_ends").first()
@@ -105,7 +115,7 @@ async def game_index(request: Request, type: str, id: int) -> str:
 
         logger.debug("Fetching matchmaking teams")
 
-        players_matchmake_team1, players_matchmake_team2 = get_matchmaking_teams(full_stats.get_team_rosters())
+        players_matchmake_team1, players_matchmake_team2 = await get_matchmaking_teams(full_stats.get_team_rosters())
 
         logger.debug("Fetching win chances")
 
@@ -136,7 +146,6 @@ async def game_index(request: Request, type: str, id: int) -> str:
             players_matchmake_team2=players_matchmake_team2,
             team1_score=await game.get_team_score(teams[0].enum),
             team2_score=await game.get_team_score(teams[1].enum),
-            is_admin=is_admin(request)
         )
     else:
         raise exceptions.BadRequest("Invalid game type")

@@ -1,20 +1,23 @@
 import json
+import sys
 import os
 from datetime import datetime
 from typing import List, Dict, Optional
 
 import sentry_sdk
 from sanic.log import logger
+from sanic import Request
 
 from db.game import EntityEnds, EntityStarts, Events, Scores, PlayerStates, Teams
 from db.laserball import LaserballGame, LaserballStats
 from db.player import Player
 from db.sm5 import IntRole, SM5_LASERRANK_VERSION
 from db.sm5 import SM5Game, SM5Stats
-from db.types import EventType, PlayerStateType, Team
+from db.types import EventType, PlayerStateType, Team, Permission
 from helpers import ratinghelper
 from helpers import sm5helper, laserballhelper
 from helpers.ratinghelper import MU, SIGMA
+from helpers.cachehelper import _precache_template
 
 
 def element_to_color(element: str) -> str:
@@ -39,9 +42,27 @@ def element_to_color(element: str) -> str:
 
     return conversion[element]
 
+async def precache_game(type: str, id: int) -> None:
+    if "pytest" in sys.modules:
+        # don't precache when running tests
+        return
 
-async def parse_sm5_game(file_location: str) -> SM5Game:
+    from shared import app
+
+    logger.debug(f"Precaching game {type} {id}")
+    request = Request(bytes(f"/game/{type}/{id}", encoding="utf-8"), {}, "", "GET", None, app)
+
+    request.ctx.session = {
+        "permissions": Permission.USER
+    }
+
+    await app.router.find_route_by_view_name("game_index").handler(request, type=type, id=id)
+    logger.debug(f"Precached game {type} {id}")
+
+
+async def parse_sm5_game(file_location: str) -> Optional[SM5Game]:
     file = open(file_location, "r", encoding="utf-16")
+    logger.info(f"Parsing {file_location}...")
 
     file_version = ""
     program_version = ""
@@ -65,7 +86,7 @@ async def parse_sm5_game(file_location: str) -> SM5Game:
     # default values, will be changed later
 
     ranked = True
-    ended_early = False  # will be changed to false if there's a mission end event
+    ended_early = True  # will be changed to false if there's a mission end event
 
     linenum = 0
     while True:
@@ -109,6 +130,12 @@ async def parse_sm5_game(file_location: str) -> SM5Game:
                     if file_location == "sm5_tdf/" + game.tdf_name:
                         logger.warning(f"Game {game.id} already exists, skipping")
                         return game
+                    
+                if mission_type != 5:
+                    # only parse sm5 games (mission type 5)
+
+                    logger.warning(f"Game at {file_location} is not an SM5 game (mission type {mission_type}), skipping")
+                    return None
 
             case "2":  # team info
                 sentry_sdk.set_context("team_info", {"index": data[1], "name": data[2], "color_enum": data[3],
@@ -122,6 +149,8 @@ async def parse_sm5_game(file_location: str) -> SM5Game:
             case "3":  # entity start
                 team = None
 
+                # what team is this player on?
+                # iterate through teams until we find the right one and save it to "team"
                 for t in teams:
                     if t.index == int(data[5]):
                         team = t
@@ -132,7 +161,7 @@ async def parse_sm5_game(file_location: str) -> SM5Game:
 
                 # has index 9
                 try:
-                    member_id = int(data[9])
+                    member_id = data[9]
                 except (ValueError, IndexError):
                     member_id = None
 
@@ -160,8 +189,7 @@ async def parse_sm5_game(file_location: str) -> SM5Game:
                 token_to_entity[data[2]] = entity_start
             case "4":  # event
                 sentry_sdk.set_context("event", {"time": data[1], "type": data[2], "arguments": data[3:]})
-
-                # okay but why is event type a string
+                
                 events.append(await create_event_from_data(data))
 
                 if EventType(data[2]) == EventType.MISSION_END:  # game ended naturally
@@ -424,11 +452,16 @@ async def parse_sm5_game(file_location: str) -> SM5Game:
 
     logger.info(f"Finished parsing {file_location} (game {game.id})")
 
+    # precache the game so it's available immediately
+
+    await precache_game("sm5", game.id)
+
     return game
 
 
-async def parse_laserball_game(file_location: str) -> LaserballGame:
+async def parse_laserball_game(file_location: str) -> Optional[LaserballGame]:
     file = open(file_location, "r", encoding="utf-16")
+    logger.info(f"Parsing {file_location}...")
 
     file_version = ""
     program_version = ""
@@ -493,6 +526,12 @@ async def parse_laserball_game(file_location: str) -> LaserballGame:
                 if game := await LaserballGame.filter(start_time=start_time, arena=arena).first():
                     logger.warning(f"Game {game.id} already exists, skipping")
                     return game
+                
+                if mission_type != 28:
+                    # only parse laserball games (mission type 28)
+
+                    logger.warning(f"Game at {file_location} is not a Laserball game (mission type {mission_type}), skipping")
+                    return None
 
             case "2":  # team info
                 sentry_sdk.set_context("team_info", {"index": data[1], "name": data[2], "color_enum": data[3],
@@ -687,7 +726,7 @@ async def parse_laserball_game(file_location: str) -> LaserballGame:
 
     i = 0
     for team in teams:
-        if not t.color_name or not t.color_enum or t.name == "Neutral":
+        if not team.color_name or not team.color_enum or team.name == "Neutral":
             continue
 
         if i == 0:  # found first team
@@ -768,15 +807,19 @@ async def parse_laserball_game(file_location: str) -> LaserballGame:
     team1_len = await game.entity_ends.filter(entity__team=team1, entity__type="player").count()
     team2_len = await game.entity_ends.filter(entity__team=team2, entity__type="player").count()
 
-    # 1 < team size
+    logger.debug(f"Team 1 size: {team1_len}, Team 2 size: {team2_len}")
 
-    if team1_len < 1 or team2_len < 1:
+    # team size < 1
+
+    if team1_len < 2 or team2_len < 2:
+        logger.debug("One of the teams has less than 2 players, unranking game")
         ranked = False
 
     # check if there are any non-member players
 
     for e in entity_starts:
         if e.type == "player" and e.entity_id.startswith("@") and e.name == e.battlesuit:
+            logger.debug(f"Found non-member player {e.name}, unranking game")
             ranked = False
             break
 
@@ -857,6 +900,10 @@ async def parse_laserball_game(file_location: str) -> LaserballGame:
             await entity_end.save()
 
     logger.info(f"Finished parsing {file_location} (game {game.id})")
+
+    # precache the game so it's available immediately
+
+    await precache_game("laserball", game.id)
 
     return game
 

@@ -1,55 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Stats{% endblock %}
+<!--stat page-->
+{% block meta_description %}General statistics and leaderboards for all players{% endblock %}
 
 {% block html_head %}
-
-<style>
-    .stats-header {
-        text-align: center;
-        margin: 0;
-        padding: 0;
-    }
-
-    .wins-pie-chart {
-        height: 4em;
-        position: relative;
-        display: flex;
-        justify-content: center;
-    }
-
-    table {
-        margin: auto;
-        padding: 1rem;
-        margin-top: 1rem;
-        border: 1px solid lightgray;
-        border-collapse: collapse;
-        width: 100%;
-    }
-
-    tr:nth-child(even) {
-        background-color: #252525;
-    }
-
-    th, td, tr {
-        text-align: center;
-        border: 1px solid lightgray;
-        padding: 5px;
-    }
-
-    td {
-        color: lightgray;
-    }
-
-    .role-leaderboards {
-        display: flex;
-        flex-direction: row;
-        justify-content: space-around;
-        flex-wrap: wrap;
-        margin-top: 1rem;
-        gap: 1rem;
-    }
-</style>
-
+<link rel="stylesheet" href="/assets/css/stats.css">
 {% endblock %}
 
 {% block content %}
@@ -73,27 +28,16 @@
             <h2>{{ total_games_played }}</h2>
             <p>Total Games Played</p>
         </div>
-        <div class="btn">
-            <h2 title=
-                        "Algorithm for Ranking Accuracy
+        <div class="btn" title="Algorithm for Predictive Accuracy
 
 Sum of all ranked games:
 +1 point for each correct prediction or
-+2 points for each correct prediction of a tie, aka a close game (score diff <= 1000)
++1 points for each correct prediction of a tie, aka a close game (score diff <= 10% of combined score and 40-60% win chance)
 
 Divided by the total number of games
-"
-            >{{ "%.2f" % (ranking_accuracy*100)|round(2) }}%</h2>
-            <p title=
-                       "Algorithm for Ranking Accuracy
-
-Sum of all ranked games:
-+1 point for each correct prediction or
-+2 points for each correct prediction of a tie, aka a close game (score diff <= 1000)
-
-Divided by the total number of games
-"
-            >Ranking Accuracy</p>
+">
+            <h2>{{ "%.2f" % (predictive_accuracy*100)|round(2) }}%</h2>
+            <p>Predictive Accuracy</p>
         </div>
     </div>
 
@@ -165,12 +109,40 @@ Divided by the total number of games
 
     <br><br><br>
 
+    <h2 class="stats-header" title="Minimum 5 games">Top Players By Role Rating</h2>
+
+    <br>
+
+    <div class="role-leaderboards">
+        {% for role_name, role in zip(["Commander", "Heavy", "Scout", "Ammo", "Medic"], [top_commanders_rating, top_heavies_rating, top_scouts_rating, top_ammos_rating, top_medics_rating]) %}
+            <div>
+                <h2 class="stats-header">{{ role_name }}</h2>
+                <table>
+                    <tr>
+                        <th>Name</th>
+                        <th>Role Rating</th>
+                        <th>Games</th>
+                    </tr>
+                    {% for player in role %}
+                        <tr>
+                            <td>{{ player[0] }}</td>
+                            <td>{{ player[1] | round(2) }}</td>
+                            <td>{{ player[2] }}</td>
+                        </tr>
+                    {% endfor %}
+                </table>
+            </div>
+        {% endfor %}
+    </div>
+
+    <br><br><br>
+
     <h2 class="stats-header" title="Minimum 5 games">Top Players By Median Score</h2>
 
     <br>
 
     <div class="role-leaderboards">
-        {% for role_name, role in zip(["Commander", "Heavy", "Scout", "Ammo", "Medic"], [top_commanders, top_heavies, top_scouts, top_ammos, top_medics]) %}
+        {% for role_name, role in zip(["Commander", "Heavy", "Scout", "Ammo", "Medic"], [top_commanders_score, top_heavies_score, top_scouts_score, top_ammos_score, top_medics_score]) %}
             <div>
                 <h2 class="stats-header">{{ role_name }}</h2>
                 <table>
